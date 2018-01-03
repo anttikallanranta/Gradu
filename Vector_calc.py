@@ -10,6 +10,7 @@ import numpy as np
 import math
 import scipy
 import scipy.integrate as integrate
+#import scipy.integrate as trapz
 import scipy.stats.vonmises as vonmises
 import scipy.stats  as st
 import matplotlib.pyplot as plt
@@ -143,6 +144,7 @@ def f_a_alpha(aArray, x, TC13):
     # According to power-law
     a_min = min(aArray)  # a_min = lowest value of alpha
     fa = (TC13 - 1) / a_min * (x / a_min) ** TC13
+    print(fa)
     return fa
 
 
@@ -160,6 +162,7 @@ def f(x):
     c13 = reciprocal(c13.item(0))
     return c13
 
+'''
 def make_angle_pdf(angles,uncerts,alpha,pdf_range):
     pdf = np.zeros(len(pdf_range))
     spdf = np.zeros(len(pdf_range))
@@ -178,7 +181,28 @@ def make_angle_cdf(spdf,dx):
         else:
             cdf[agei] = cdf[agei-1] + (spdf[agei]+spdf[agei-1])/2.0 * dx
     return cdf
+'''
 
+def _cdf(angles, x):
+    return np.sum(angles <= x) / np.sum(~np.isnan(angles))
+
+
+def make_angle_cdf_2(angles, n):
+    cdf_out = np.zeros(n)
+    cdf_range = np.linspace(0, np.pi, n)
+    da = np.pi / (n-1)
+    for i in range(n):
+        cdf_out[i] = _cdf(np.pi*angles/180, (i+1)*da)
+    return (cdf_out, cdf_range)
+
+
+def make_angle_pdf_2(cdf, cdfr):
+    n = len(cdf) - 1
+    pdf_out = np.zeros(n)
+    pdf_range = np.linspace(0, np.pi, n)
+    for i in range(n-1):
+        pdf_out[i] = (cdf[i+1] - cdf[i]) / (cdfr[i+1]-cdfr[i])
+    return (pdf_out, pdf_range)
 
 ###################################
 
@@ -338,15 +362,31 @@ plt.plot(X, hist_dist.cdf(X), label='CDF')
 plt.show()
 """
 area1 = area1['alphaR1'].values
+area1 = area1[~np.isnan(area1)]
 uncerts = np.zeros(len(area1))+2
 alpha = 0.6
-pdf_range = np.linspace(0,180,1001)
+pdf_range = np.linspace(0,180,10)
 dx = pdf_range[1]-pdf_range[0]
 print(area1)
 type(area1)
-pdf_angle = make_angle_pdf(area1,uncerts,alpha,pdf_range)
+#pdf_angle = make_angle_pdf(area1,uncerts,alpha,pdf_range)
 
-cdf_angle = make_angle_cdf(pdf_angle,dx)
+#cdf_angle = make_angle_cdf(pdf_angle,dx)
+
+cdf_angle, cdf_range = make_angle_cdf_2(area1,10)
+pdf_angle, pdf_range = make_angle_pdf_2(cdf_angle, cdf_range)
+
 #plt.plot(pdf_range,pdf_angle)
-plt.plot(pdf_range, cdf_angle)
+#plt.plot(pdf_range, cdf_angle)
+
+plt.plot(pdf_range, pdf_angle)
+plt.plot(cdf_range, cdf_angle)
+print(integrate.trapz(pdf_angle*np.abs(np.cos(pdf_range)), pdf_range))
 plt.show()
+
+'''
+Normalisoi CDF ja PDF jakamalla arvot suurimmalla arvolla. Suurin = 1
+
+Tee kaikille populaatioille PDF, syötä integraaliin
+'''
+
