@@ -4,6 +4,7 @@ Created on Mon Nov 13 11:11:13 2017
 @author: Joni & Antti
 """
 
+# %%
 import pandas as pd
 import numpy as np
 import math
@@ -12,13 +13,15 @@ import matplotlib.pyplot as plt
 import collections
 from pylab import figure, show, legend, ylabel, xlabel    
 import mplstereonet
+import mplFunctions as mpl
 
 
 # Read data from .xlsx to Pandas dataFrame
-fp = r"C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\Rakoilu-detail_karsittu.xlsx"
+#fp = r"C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\Rakoilu-detail_karsittu.xlsx"
 fp2 =  r"C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\Rakoilu-detail_karsittu_3.xlsx"
-data = pd.read_excel(fp, sheet_name='Sheet1', na_values='', )  # index_col='ID')
-data2 = pd.read_excel(fp2, sheet_name='Sheet1', na_values='', ) 
+#data = pd.read_excel(fp, sheet_name='Sheet1', na_values='', )  # index_col='ID')
+data2 = pd.read_excel(fp2, sheet_name='OnlyArea1', na_values='', )
+
 
 ######################################
 # Define all functions
@@ -51,14 +54,22 @@ def aDVector(R, No):
     return AD
 
 
+def unit_vector(vector):
+    """ Returns the unit vector of the vector.  """
+    return vector / np.linalg.norm(vector)
+
+
 def vectorAngle(array1, array2):
-    alpha = np.rad2deg(np.arccos(np.dot(array1, array2) / (np.linalg.norm(array1) * np.linalg.norm(array2))))
+    #alpha = np.rad2deg(np.arccos(np.dot(array1, array2) / (np.linalg.norm(array1) * np.linalg.norm(array2))))
+
+    alpha = np.rad2deg(np.arccos(np.clip(np.dot(unit_vector(array1), unit_vector(array2)), -1.0, 1.0)))
     return alpha
 
 
 # Returns the reciprocal of a value
-def reciprocal(n):
-    reciprocal = 1.0 / n
+def reciprocal(x):
+    #print(x)
+    reciprocal = 1.0 / x
     return reciprocal
 
 
@@ -102,7 +113,7 @@ def make_deg_pdf_2(cdf, cdfr):
     return (pdf_out, pdf_range)
 
 
-def plot_stereonet(strikes, dips):
+def plot_stereonet(strikes, dips, domain):
     bin_edges = np.arange(-5, 366, 10)
     number_of_strikes, bin_edges = np.histogram(strikes+90, bin_edges)
     number_of_strikes[0] += number_of_strikes[-1]
@@ -113,9 +124,9 @@ def plot_stereonet(strikes, dips):
     
     ax = fig.add_subplot(121, projection='stereonet')
 
-    ax.pole(strikes+90, dips, c='k', label='Pole of the Planes')
-    ax.density_contourf(strikes+90, dips, measurement='poles', cmap='Reds')
-    ax.set_title('Density coutour of the Poles', y=1.10, fontsize=15)
+    ax.pole(strikes+90, dips, c='k', label='Poles of the Planes')
+    ax.density_contourf(strikes+90, dips, measurement='poles', cmap='Reds', sigma = 10)
+    ax.set_title('Density contour of the Poles', y=1.10, fontsize=15)
     ax.grid()
     
     ax = fig.add_subplot(122, projection='polar')
@@ -125,11 +136,11 @@ def plot_stereonet(strikes, dips):
     ax.set_theta_zero_location('N')
     ax.set_theta_direction(-1)
     ax.set_thetagrids(np.arange(0, 360, 10), labels=np.arange(0, 360, 10))
-    ax.set_rgrids(np.arange(1, two_halves.max() + 1, 2), angle=0, weight= 'black')
-    ax.set_title('Rose Diagram of the "Fault System"', y=1.10, fontsize=15)
-    
-    fig.tight_layout()
-    show()
+    ax.set_rgrids(np.arange(1, two_halves.max() + 1, 10), angle=0, weight= 'black')
+    ax.set_title('Rose Diagram of the Bearings', y=1.10, fontsize=15)
+    fig.suptitle(domain)
+#    fig.tight_layout()
+#    show()
 
 
 def weightByN(dataframe):
@@ -137,26 +148,89 @@ def weightByN(dataframe):
     frameList = dataframe.values.tolist()
     list2 = []
     for idx, row in dataframe.iterrows():
-        if row[12] == 0:
+        if row['n_fractures'] == 0:
             pass
         else:
-            for i in range(row[12]-1):
+            for i in range(row['n_fractures']):
                 list2.append(frameList[idx])
     frame = pd.DataFrame(list2, columns=weightcols)
-    frame.sort_values(['Id'])
-    dataframe = dataframe.append(frame)#.sort_values('Id')
-    dataframe.sort_values(['Id'])
-    return dataframe
-# Kuusi riviä liikaa, laita sort_values kuntoon
+#    frame.sort_values(['Id'])
+#    dataframe = dataframe.append(frame)#.sort_values('Id')
+#    dataframe.sort_values(['ID'])
+#    dataframe.reset_index()
+    return frame
 
-data2 = weightByN(data2)
-print(data2)
-#print(len(data2))
-strikes = data2.as_matrix(columns = ['dir'])
-dips = data2.as_matrix(columns = ['dip'])
-#s = np.array([90])
-#d = np.array([45])
-plot_stereonet(strikes,dips)
+
+def splitByAngle(dframe):
+    # Create array bins for the fracture population orientations (A1)
+    #bin1 = np.empty([2])
+
+    testPoles = pd.DataFrame({'strike':[1,360,180,45,225], 'dip':[0,90,90,90,90]})
+
+    #strikes = testPoles.as_matrix(columns=['dir'])
+    #dips = testPoles.as_matrix(columns=['dip'])
+    #plot_stereonet(strikes, dips, 1)
+    
+    for idx, row in dframe.iterrows():
+
+        lon, lat = mpl.pole((row['strike']), row['dip'])
+        for i, r in testPoles.iterrows():
+            angle = np.degrees(mpl.angular_distance((lon,lat), (mpl.pole(r['strike'],r['dip'])), bidirectional=False))
+            #print(type(angle))
+            #print(idx,i,angle)
+            #np.append(bin1, [i,angle], axis = 0)
+            if (angle <= np.array([40])).all():
+                dframe.loc[idx, 'population'] = int(i)
+                break
+            else:
+                pass
+    return dframe
+
+
+def correctPop(dframe):
+
+   #grouped = dframe.groupby('population')
+
+    for idx, row in dframe.iterrows():
+        if row['population'] == 0:
+            dframe.loc[idx, 'population'] = 1
+            continue
+        elif row['population'] == 1 or row['population'] == 2:
+            dframe.loc[idx, 'population'] = 2
+            continue
+        elif row['population'] == 3 or row['population'] == 4:
+            dframe.loc[idx, 'population'] = 3
+            continue
+        else:
+            pass
+    return dframe
+
+
+def getSmallAlpha(S,normal):
+    #alphadf = pd.DataFrame()
+    alpha1 = vectorAngle(S, normal)
+    alpha2 = vectorAngle(S*-1, normal)
+    alpha3 = vectorAngle(S, normal*-1)
+    alpha4 = vectorAngle(S*-1, normal*-1)
+    if alpha1 < alpha2 and alpha1 < alpha3 and alpha1 < alpha4:
+        #print('1', alpha1)
+        return alpha1
+    elif alpha1 > alpha2 and alpha2 < alpha3 and alpha2 < alpha4:
+        #print('2', alpha2)
+        return alpha2
+    elif alpha3 < alpha1 and alpha3 < alpha2 and alpha3 < alpha4:
+        #print('3', alpha3)
+        return alpha3
+    else:
+        #print('4', alpha4)
+        return alpha4
+
+
+def zero_to_nan(values):
+    """Replace every 0 with 'nan' and return a copy."""
+    return [float('nan') if x==0 else x for x in values]
+
+
 ###################################
 
 
@@ -166,32 +240,19 @@ dirList2 = ['dir']
 dipList = ['R1Dip', 'R2Dip', 'R3Dip', 'R4Dip']
 dipList2 = ['dip']
 
-'''
-fishDirList = ['R1fDir', 'R2fDir', 'R3fDir', 'R4fDir']
-fishDipList = ['R1fDip', 'R2fDip', 'R3fDip', 'R4fDip']
-
-# Create DataFrame for Fisher mean pole direction and dip and kappa
-fisherDF = pd.DataFrame(
-    {'Domain': ['Area 1', 'Area 2', 'Area 3'], 'R1fDir': [128.08, 167.47, None], 'R2fDir': [19.35, 268.89, None],
-     'R3fDir': [114.09, 107.31, None], 'R4fDir': [None, None, None],
-     'R1fDip': [2.8, 5.47, None], 'R2fDip': [3.51, 1.15, None], 'R3fDip': [82.25, 75.07, None],
-     'R4fDip': [None, None, None],
-     'R1kappa': [1.22, 1.28, None], 'R2kappa': [1.60, 1.27, None], 'R3kappa': [30.36, 14.27, None],
-     'R4kappa': [None, None, None]})
-
-# Merge Fisher values into data
-data = data.merge(fisherDF, how='outer', on='Domain')
-data = data.sort_values(['Domain', 'Id'])
-data = data.reset_index(drop=True)
-'''
-
+cartesianArray = np.array([None, None, None])
 ##############################
 # Begin loop
 # Calculate alpha and rho
 # Update the corresponding column
 ##############################
 
+# Empty arrays for lon and lat
+#lons = np.empty(1, len)
+#lats = np.empty(1)
+
 for index, row in data2.iterrows():
+    # r = magnitude of vector
     r = 1
 
     ##############################
@@ -204,14 +265,16 @@ for index, row in data2.iterrows():
     ##############################
 
     if math.isnan(row['outcrop_normal']):
-        for i in dirList2:
-            R = sphere2cartesian(np.array([r, row[i], 90]))
-            alpha = vectorAngle(R, sphere2cartesian(np.array([r, row[i], row[dipList2[dirList2.index(i)]] + 180])))
-            if math.isnan(alpha):
-                pass
-            else:
-#                data.loc[index, 'alpha{}'.format(i[:2])] = alpha
-                data2.loc[index, 'alpha{}'.format(i[:2])] = alpha
+        #for i in dirList2:
+        S = sphere2cartesian(np.array([r, row['dir'], 90]))
+        #cartesianArray = np.vstack((cartesianArray, R))
+        normal = sphere2cartesian(np.array([r, row['dir'], 90-row['dip']]))
+        alpha = getSmallAlpha(S,normal)
+        #if math.isnan(alpha):
+        #    pass
+        #else:
+        #data.loc[index, 'alpha{}'.format(i[:2])] = alpha
+        data2.loc[index, 'alpha'] = alpha
 
 ########################
 # Vertical
@@ -221,28 +284,97 @@ for index, row in data2.iterrows():
 # Calculate the angle alpha between scanline and fracture population normal
 # Calculate rho between scanline and Fisher mean pole
 # No = Outcrop normal
-# Ot = Outcrop trend
+# Ot = Outcrop strike
 # R = Fracture population dip vector
+# ad = Apparent dip
 # S = Scanline vector
+# normal = Fracture plane normal
 ########################
 
     else:
-        No = sphere2cartesian(np.array([r, row['outcrop_normal'], 90]))
-        Ot = sphere2cartesian(np.array([r, row['outcrop_trend'], 90]))
+        #No = sphere2cartesian(np.array([r, row['outcrop_normal'], 90]))
+        Nolon, Nolat = mpl.pole(row['outcrop_normal'], 90)
+        No = unit_vector(mpl.sph2cart(Nolon, Nolat))
+        No = No.flatten()
+        #Ot = sphere2cartesian(np.array([r, row['outcrop_strike'], 90]))
+        Otlon, Otlat = mpl.pole(row['outcrop_strike'], 90)
+        Ot = unit_vector(mpl.sph2cart(Otlon, Otlat))
+        Ot = Ot.flatten()
 
-        for i in dirList2:
-            R = sphere2cartesian(np.array([r, row[i], row[dipList2[dirList2.index(i)]] + 90]))
-            ad = apparentDip(R, No, Ot)
-            if math.isnan(ad):
-                pass
-            else:
-                S = np.cross(aDVector(R, No), No)
-                normal = sphere2cartesian((np.array([r, row[i], row[dipList2[dirList2.index(i)]] + 180])))
-                alpha = vectorAngle(S, normal)
-#                data.loc[index, 'alpha{}'.format(i[:2])] = alpha
-                data2.loc[index, 'alpha{}'.format(i[:2])] = alpha
+        #for i in dirList2:
+        #R = sphere2cartesian(np.array([r, row['dir'], row['dip'] + 90]))
+        Rlon, Rlat = mpl.pole(row['strike'], row['dip'])
+        R = unit_vector(mpl.sph2cart(Rlon, Rlat))
+        R = R.flatten()
+        #cartesianArray = np.vstack((cartesianArray, R))
+        #ad = apparentDip(R, No, Ot)
+        #if math.isnan(ad):
+        #    pass
+        #else:
 
-data2.head(10)
+        ADplunge, ADbearing = mpl.plane_intersection(row['strike'], row['dip'], row['outcrop_strike'], 90)
+        ADlon, ADlat = mpl.line(ADplunge, ADbearing)
+        ADstrike, ADdip = mpl.geographic2pole(ADlon, ADlat)
+
+        #S = np.cross(aDVector(R, No), No)
+        Slon, Slat = mpl.line(row['outcrop_strike'], ADplunge-90)
+        S = unit_vector(mpl.sph2cart(Slon, Slat))
+        S = S.flatten()
+        #print('S', np.rad2deg(S))
+        nlon, nlat = mpl.line(row['dir'], 90-row['dip'])
+        normal = unit_vector(mpl.sph2cart(nlon, nlat))
+        normal = normal.flatten()
+
+        # Append fracture normals to arrays
+        data2.loc[index, 'lon'] = nlon
+        data2.loc[index, 'lat'] = nlat
+
+        #np.append(lons, nlon)
+        #np.append(lats, nlat)
+
+        # Muuta vektorit aina kulkemaan positiiviseen suuntaan
+        #if S[2] < 0:
+        #    S = S * -1
+        #if normal[2] < 0:
+        #    normal = normal*-1
+
+        #alpha = vectorAngle(S,normal)
+        alpha = np.degrees(mpl.angular_distance((Slon, Slat), (nlon, nlat), bidirectional = True))
+        #alpha = np.deg2rad(alpha)
+
+        #data.loc[index, 'alpha{}'.format(i[:2])] = alpha
+        data2.loc[index, 'alpha'] = alpha
+
+#cartesianArray = cartesianArray[1:]
+
+
+#########################
+# Stereoplots and division
+# Weighting by density
+#########################
+
+data2 = weightByN(data2)
+data2 = splitByAngle(data2)
+data2[['population']]  = data2[['population']].fillna(999).astype(int)
+data2[['population']] = data2[['population']].astype(int)
+data2 = data2.sort_values('Id', ascending = True)
+
+#print(data2)
+data2 = correctPop(data2)
+print(data2)
+
+
+# Group data by domain
+# Make stereoplot and roseplot of each area
+grouped = data2.groupby('Domain')
+for idx, group in grouped:
+    strikes = group.as_matrix(columns = ['dir'])
+    dips = group.as_matrix(columns = ['dip'])
+    plot_stereonet(strikes,dips,idx)
+    outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+    fname = outfp + '\\' + idx + '_' + 'stereo_rose' + '.png'
+    plt.savefig(fname, dpi=300)
+
 
 #########################
 # C13
@@ -253,76 +385,140 @@ data2.head(10)
 uniqueAreas = data2.Domain.unique()
 DataFrameDict = {elem: pd.DataFrame for elem in uniqueAreas}
 for key in DataFrameDict.keys():
-    DataFrameDict[key] = data2[:][data.Domain == key]
+    DataFrameDict[key] = data2[:][data2.Domain == key]
 DataFrameDict = collections.OrderedDict(
     sorted(DataFrameDict.items()))  # Sort the Dictionary so everything works in order
 
 # Create DataFrame for the C13 values
-C13DF = pd.DataFrame(
-    {'Population': ['R1', 'R2', 'R3', 'R4'], 'Area 1': [None, None, None, None], 'Area 2': [None, None, None, None],
-     'Area 3': [None, None, None, None]})
-C13DF = C13DF.set_index('Population')
-alphaCols = ['alphaR1', 'alphaR2', 'alphaR3']
+#C13DF = pd.DataFrame({'Population': ['R1', 'R2', 'R3', 'R4'], 'Area 1': [None, None, None, None], 'Area 2': [None, None, None, None], 'Area 3': [None, None, None, None]})
+#C13DF = C13DF.set_index('Population')
+#alphaCols = ['alphaR1', 'alphaR2', 'alphaR3']
+
 
 # Calculate C13 for each area // C13 as a function of area AND population! FIX
-# Save conversion factors to a DataFrame
 
-for key in DataFrameDict:
-    tempFrame = DataFrameDict[key]
-    tempFrame = tempFrame[alphaCols]
-    
-    for name in alphaCols:
-        tempName = tempFrame[name].values
-        tempName = tempName[~np.isnan(tempName)]
-        tempName = np.sort(tempName)
-        uncerts = np.zeros(len(tempName))+2
-        alpha = 0.6
-        pdf_range = np.linspace(0,180,len(tempName)-1)
-        dx = pdf_range[1]-pdf_range[0]
-        print(tempName)
-        cdf_angle, cdf_range = make_deg_cdf_2(tempName,len(tempName)-1)
-        pdf_angle, pdf_range = make_deg_pdf_2(cdf_angle, cdf_range)
-        C13 = integrate.trapz(pdf_angle*np.abs(np.cos(pdf_range)), pdf_range)
-        C13DF.loc[name[5:], key] = C13
-        print(C13DF)
-        outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
-        fname = outfp + '\\' + key + '_' + name + '_combi' + '.png'
+# Save conversion factors to a DataFrame
+C13DF2 = pd.DataFrame(columns = ['Population', 'Area 1']) #, 'Area 2': [None], 'Area 3': [None]})
+C13DF2 = C13DF2.set_index('Population')
+#alphaCols2 = ['alpha']
+
+# Group data by population
+data2 = data2.sort_values('population', ascending = True)
+grouped = data2.groupby('population')
+
+for idx,group in grouped:
+    #tempFrame = DataFrameDict[key]
+    if idx == 999:
+        continue
+    tempFrame = group['alpha']
+    tempName = tempFrame.values
+    tempName = tempName[~np.isnan(tempName)]
+    tempName = np.sort(tempName)
+    uncerts = np.zeros(len(tempName)) + 2
+    #alpha = 0.6
+
+    pdf_range = np.linspace(0, np.pi, len(tempName) - 1)
+    #dx = pdf_range[1] - pdf_range[0]
+    #print(tempName)
+    cdf_angle, cdf_range = make_rad_cdf_2(tempName, len(tempName) - 1)
+    pdf_angle, pdf_range = make_rad_pdf_2(cdf_angle, cdf_range)
+
+    C13 = reciprocal(integrate.trapz(pdf_angle * np.abs(np.cos(pdf_range)), pdf_range))
+    C13DF2.loc[idx, 'Area 1'] = C13
+    print(C13DF2)
+    outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+    fname = outfp + '\\' + 'Area 1' + '_' + str(idx) + '_test' + '.png'
 
 ######################
         # Plotting
 ######################
-        
-        # create the general figure
-        fig1 = figure()       
-        # and the first axes using subplot populated with data 
-        ax1 = fig1.add_subplot(111)
-        line1 = ax1.plot(pdf_range, pdf_angle, 'o-')
-        ylabel("PDF", color = 'b') 
-        xlabel("Radians")
-        # now, the second axes that shares the x-axis with the ax1
-        ax2 = fig1.add_subplot(111, sharex=ax1, frameon=False)
-        line2 = ax2.plot(cdf_range, cdf_angle, 'xr-')
-        ax2.yaxis.tick_right()
-        ax2.yaxis.set_label_position("right")
-        ylabel("CDF", color = 'r')        
-        # for the legend, remember that we used two different axes so, we need 
-        # to build the legend manually
+
+    # create the general figure
+    fig1 = figure()
+    # and the first axes using subplot populated with data
+    ax1 = fig1.add_subplot(111)
+    #pdf_angle = zero_to_nan(pdf_angle)
+    #pdf_angle = pdf_angle.astype(np.double)
+    #pdfMask = np.isinf(pdf_angle)
+    #cdf_angle = zero_to_nan(cdf_angle)
+    #cdf_angle = cdf_angle.astype(np.double)
+    #cdfMask = np.isinf(cdf_angle)
+
+    line1 = ax1.plot(pdf_range, pdf_angle, 'o-')
+    ylabel("PDF", color = 'b')
+    xlabel("Alpha")
+    # now, the second axes that shares the x-axis with the ax1
+    ax2 = fig1.add_subplot(111, sharex=ax1, frameon=False)
+    line2 = ax2.plot(cdf_range, cdf_angle, 'or-',)
+    ax2.yaxis.tick_right()
+    ax2.yaxis.set_label_position("right")
+    ylabel("CDF", color = 'r')
+    # for the legend, remember that we used two different axes so, we need
+    # to build the legend manually
 #        legend((line1, line2), ("1", "2"))
-        plt.title(key + ' ' + name, loc='center')
-        plt.savefig(fname, dpi=300)
+    plt.title('Area 1' + '_R' + str(idx), loc='center')
+    plt.savefig(fname, dpi=300)
 #        show()
 
-'''            
-        plt.plot(pdf_range, pdf_angle)
-        plt.plot(cdf_range, cdf_angle)
-        plt.xlabel('Radians')
-        plt.ylabel('CDF')
-        plt.title(key + ' ' + name, loc='center')
-        plt.savefig(fname, dpi=300)
-        plt.show()
-'''
+######################
+# Fisher Stats
+######################
 
-'''
-Normalisoi CDF ja PDF jakamalla arvot suurimmalla arvolla. Suurin = 1
-Tee kaikille populaatioille PDF, syötä integraaliin
-'''        
+    lons = group['lon'].as_matrix()
+    lats = group['lat'].as_matrix()
+
+    lons = lons[~np.isnan(lons)]
+    lats = lats[~np.isnan(lats)]
+
+    mean_vec, (r_value, angle, kappa) = mpl.fisher_stats(lons, lats, conf = 95)
+    print('Mean_vec', mean_vec)
+    print('r_value', r_value)
+    print('angle', angle)
+    print('kappa', kappa)
+
+#    for i in tempFrame:
+#        tempName = tempFrame[i].values
+#        tempName = tempName[~np.isnan(tempName)]
+#        tempName = np.sort(tempName)
+#        uncerts = np.zeros(len(tempName))+2
+#        alpha = 0.6
+#        pdf_range = np.linspace(0,180,len(tempName)-1)
+#        dx = pdf_range[1]-pdf_range[0]
+#        #print(tempName)
+#        cdf_angle, cdf_range = make_deg_cdf_2(tempName,len(tempName)-1)
+#        pdf_angle, pdf_range = make_deg_pdf_2(cdf_angle, cdf_range)
+#        C13 = integrate.trapz(pdf_angle*np.abs(np.cos(pdf_range)), pdf_range)
+#        C13DF2.loc[idx, 'Area 1'] = C13
+#        print(C13DF2)
+#        outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+#        fname = outfp + '\\' + 'Area 1' + '_' + str(idx) + '_combi' + '.png'
+
+            
+#        plt.plot(pdf_range, pdf_angle)
+#        plt.plot(cdf_range, cdf_angle)
+#        plt.xlabel('Radians')
+#        plt.ylabel('CDF')
+#        plt.title(key + ' ' + name, loc='center')
+#        plt.savefig(fname, dpi=300)
+#        plt.show()
+        
+#Normalisoi CDF ja PDF jakamalla arvot suurimmalla arvolla. Suurin = 1
+#Tee kaikille populaatioille PDF, syötä integraaliin
+
+#fishDirList = ['R1fDir', 'R2fDir', 'R3fDir', 'R4fDir']
+#fishDipList = ['R1fDip', 'R2fDip', 'R3fDip', 'R4fDip']
+
+# Create DataFrame for Fisher mean pole direction and dip and kappa
+#isherDF = pd.DataFrame(
+#    {'Domain': ['Area 1', 'Area 2', 'Area 3'], 'R1fDir': [128.08, 167.47, None], 'R2fDir': [19.35, 268.89, None],
+#     'R3fDir': [114.09, 107.31, None], 'R4fDir': [None, None, None],
+#     'R1fDip': [2.8, 5.47, None], 'R2fDip': [3.51, 1.15, None], 'R3fDip': [82.25, 75.07, None],
+#     'R4fDip': [None, None, None],
+#     'R1kappa': [1.22, 1.28, None], 'R2kappa': [1.60, 1.27, None], 'R3kappa': [30.36, 14.27, None],
+#     'R4kappa': [None, None, None]})
+
+# Merge Fisher values into data
+#data = data.merge(fisherDF, how='outer', on='Domain')
+#data = data.sort_values(['Domain', 'Id'])
+#data = data.reset_index(drop=True)
+
