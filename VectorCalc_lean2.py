@@ -378,6 +378,27 @@ for idx,group in grouped:
     # Print the dataframe for viewing
     print(C13DF2)
 
+    ######################
+    # Fisher Stats
+    ######################
+
+    # Select stereoplot longitude column as numpy array
+    lons = group['lon'].as_matrix()
+    # Select stereoplot latitude column as numpy array
+    lats = group['lat'].as_matrix()
+
+    # Remove NaN values
+    lons = lons[~np.isnan(lons)]
+    lats = lats[~np.isnan(lats)]
+
+    # Calculate Fisher statistics
+    mean_vec, (r_value, angle, kappa) = mpl.fisher_stats(lons, lats, conf=95)
+    meanStrike, meanDip = mpl.geographic2pole(mean_vec[0], mean_vec[1])
+    print('Mean_vec strike ', meanStrike, ' dip ', meanDip )
+    print('r_value', r_value)
+    print('angle', angle)
+    print('kappa', kappa)
+
 
 ######################
         # Plotting
@@ -441,25 +462,7 @@ for idx,group in grouped:
     plt.savefig(fname, dpi=300)
 
 
-######################
-# Fisher Stats
-######################
 
-    # Select stereoplot longitude column as numpy array
-    lons = group['lon'].as_matrix()
-    # Select stereoplot latitude column as numpy array
-    lats = group['lat'].as_matrix()
-
-    # Remove NaN values
-    lons = lons[~np.isnan(lons)]
-    lats = lats[~np.isnan(lats)]
-
-    # Calculate Fisher statistics
-    mean_vec, (r_value, angle, kappa) = mpl.fisher_stats(lons, lats, conf = 95)
-    print('Mean_vec', mean_vec)
-    print('r_value', r_value)
-    print('angle', angle)
-    print('kappa', kappa)
 
 
 
