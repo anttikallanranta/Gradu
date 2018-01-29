@@ -785,3 +785,4 @@ def _repole(lon, lat, center):
     prime = xyz.dot(np.linalg.inv(basis))
     lon, lat = cart2sph(*prime.T)
     return lon[:,None], lat[:,None]
+

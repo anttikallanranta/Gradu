@@ -14,6 +14,8 @@ import collections
 from pylab import figure, show, legend, ylabel, xlabel    
 import mplstereonet
 import mplFunctions as mpl
+import analysis
+import stereonet_math
 import matplotlib.lines as mlines
 
 
@@ -22,6 +24,7 @@ import matplotlib.lines as mlines
 fp2 =  r"C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\Rakoilu-detail_karsittu_3.xlsx"
 #data = pd.read_excel(fp, sheet_name='Sheet1', na_values='', )  # index_col='ID')
 data2 = pd.read_excel(fp2, sheet_name='OnlyArea1', na_values='', )
+dataBeni = pd.read_excel(fp2, sheet_name='BeniOnlyArea1', na_values='', )
 
 
 ######################################
@@ -112,7 +115,7 @@ def make_deg_pdf_2(cdf, cdfr):
     return (pdf_out, pdf_range)
 
 
-def plot_stereonet(strikes, dips, domain):
+def plot_stereonet(strikes, dips, domain, sigma):
     bin_edges = np.arange(-5, 366, 10)
     number_of_strikes, bin_edges = np.histogram(strikes, bin_edges)
     number_of_strikes[0] += number_of_strikes[-1]
@@ -124,7 +127,7 @@ def plot_stereonet(strikes, dips, domain):
     ax = fig.add_subplot(121, projection='stereonet')
 
     ax.pole(strikes, dips, c='k', label='Poles of the Planes')
-    ax.density_contourf(strikes, dips, measurement='poles', cmap='Reds', sigma = 10)
+    ax.density_contourf(strikes, dips, measurement='poles', cmap='Reds', sigma = sigma)
     ax.set_title('Density contour of the Poles', y=1.10, fontsize=15)
     ax.grid()
     
@@ -156,8 +159,9 @@ def weightByN(dataframe):
     return frame
 
 
-def splitByAngle(dframe):
-    testPoles = pd.DataFrame({'strike':[210,10,190,295,115], 'dip':[10,90,90,90,90]})
+def splitByAngle(dframe, cPoles):
+    #testPoles = kwargs.get('cPoles', pd.DataFrame({'strike':[210,10,190,295,115], 'dip':[10,90,90,90,90]}))
+    testPoles = cPoles
 
     for idx, row in dframe.iterrows():
 
@@ -170,6 +174,20 @@ def splitByAngle(dframe):
             else:
                 pass
     return dframe
+
+
+def checkPoles(poleframe):
+    tempList = []
+    for idx, row in poleframe.iterrows():
+        rowlon, rowlat = mpl.pole(row['strike'], row['dip'])
+        for i in range(len(poleframe)):
+            idx += 1
+            ilon, ilat = mpl.pole(row['strike'], row['dip'])
+            angle = np.degrees(mpl.angular_distance((rowlon,rowlat), (ilon,ilat)))
+            if angle >=170:
+                tempList = tempList.append([idx,i])
+
+    return tempList
 
 
 def correctPop(dframe):
@@ -210,6 +228,7 @@ def zero_to_nan(values):
 
 #######################################################################3
 
+#def calcAlpha(dataframe):
 ##############################
 # Loop over the data, row by row
 # Calculate alpha - the solid angle between the scanline and fracture population normal
@@ -239,6 +258,10 @@ for index, row in data2.iterrows():
         # Stereonet coordinates for fracture normal vector
         nlon, nlat = mpl.line(row['dir'], 90 - row['dip'])
         normal = unit_vector(mpl.sph2cart(nlon, nlat))
+
+        # Append fracture normals to arrays
+        data2.loc[index, 'lon'] = nlon
+        data2.loc[index, 'lat'] = nlat
 
         # Calculate and save alpha
         alpha = np.degrees(mpl.angular_distance((Slon, Slat), (nlon, nlat), bidirectional=True))
@@ -307,12 +330,56 @@ for index, row in data2.iterrows():
 # Convert population column into int
 # Sort by outcrop id
 #########################
-
 # Weighting the data by density. Approximate all outcrops as 10 m radius circular disks
 data2 = weightByN(data2)
+data2 = data2.sort_values('Id', ascending = True)
 
+# Calculate the centers of n clusters
+lons1 = data2['strike'].as_matrix()
+lats1 = data2['dip'].as_matrix()
+centers1 = analysis.kmeans(lons1, lats1, num=5, bidirectional=True, measurement='poles')
+
+# Create stereoplot and roseplot
+#grouped = data2.groupby('Domain')
+#for idx, group in grouped:
+strikes = data2.as_matrix(columns = ['strike'])
+dips = data2.as_matrix(columns = ['dip'])
+domain = 'Area 1'
+plot_stereonet(strikes,dips,domain,10)
+outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+fname = outfp + '\\' + domain + '_' + 'stereo_rose' + '.png'
+plt.savefig(fname, dpi=300)
+
+cstrikes = np.zeros(1)
+cdips = np.zeros(1)
+counter = 0
+
+for i in centers1:
+    cstrike, cdip = stereonet_math.geographic2pole(i[0],i[1])
+    #cstrike = cpoles[0]
+    #cdip = cpoles[1]
+    cstrikes = np.append(cstrikes,cstrike)
+    cdips = np.append(cdips,cdip)
+    plot_stereonet(cstrike,cdip,domain,3)
+    counter += 1
+    print(counter)
+    outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+    fname = outfp + '\\' + domain + '_' + 'kmeans_' + str(counter) + '_stereo_rose' + '.png'
+    print(fname)
+    plt.savefig(fname, dpi=300)
+cstrikes = cstrikes[1:]
+cdips = cdips[1:]
+plot_stereonet(cstrikes,cdips,domain,2)
+outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+fname = outfp + '\\' + domain + '_' + 'kmeans_all'  + '_stereo_rose' + '.png'
+plt.savefig(fname, dpi=300)
+
+cTest = pd.DataFrame({'strike':cstrikes.tolist(), 'dip':cdips.tolist() })
+print(cTest)
+testList = checkPoles(cTest)
+print('testList', testList)
 # Classify the data into populations by comparing the poles with a set of test poles
-data2 = splitByAngle(data2)
+data2 = splitByAngle(data2, cTest)
 
 # Replace all NaN values with 999
 data2[['population']] = data2[['population']].fillna(999).astype(int)
@@ -321,19 +388,7 @@ data2[['population']] = data2[['population']].astype(int)
 # Sort data by outcrop index
 data2 = data2.sort_values('Id', ascending = True)
 # Reclassify the populations, taking repoles into consideration
-data2 = correctPop(data2)
-
-
-# Create stereoplot and roseplot
-#grouped = data2.groupby('Domain')
-#for idx, group in grouped:
-strikes = data2.as_matrix(columns = ['strike'])
-dips = data2.as_matrix(columns = ['dip'])
-domain = 'Area 1'
-plot_stereonet(strikes,dips,domain)
-outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
-fname = outfp + '\\' + domain + '_' + 'stereo_rose' + '.png'
-plt.savefig(fname, dpi=300)
+#data2 = correctPop(data2)
 
 
 #########################
@@ -378,9 +433,9 @@ for idx,group in grouped:
     # Print the dataframe for viewing
     print(C13DF2)
 
-    ######################
-    # Fisher Stats
-    ######################
+##########################
+# Fisher Stats
+##########################
 
     # Select stereoplot longitude column as numpy array
     lons = group['lon'].as_matrix()
@@ -440,8 +495,8 @@ for idx,group in grouped:
     ax2 = fig1.add_subplot(111, sharex=ax1, frameon=False)
 
     # Make PDF and CDF arrays the same size
-    cdf_range = cdf_range[0:-1]
-    cdf_angle = cdf_angle[0:-1]
+    cdf_range = cdf_range[:-1]
+    cdf_angle = cdf_angle[:-1]
 
     # Mask values where pdf_range > 92 degrees, for visualization
     cdf_range_masked = np.ma.masked_where(pdf_range > 92, cdf_range)
@@ -457,10 +512,19 @@ for idx,group in grouped:
 
     # Build the legend
     cdfLineLegend = mlines.Line2D([], [], color='r', label='CDF')
-    legend((pdfBar, cdfLineLegend), ("PDF", "CDF"))
+    unid = group.Id.unique()
+    legend((pdfBar, cdfLineLegend), ("PDF", "CDF, n=" + str(len(unid))))
     plt.title('Area 1' + '_R' + str(idx), loc='center')
     plt.savefig(fname, dpi=300)
 
+#testList = checkPoles(cTest)
+#print('testList',testList)
+#print(cstrikes)
+#print(cdips)
+#print(cTest)
+#print(len(cstrikes),len(cdips))
+#print(cstrikes,cdips)
+#print('centers1',centers1)
 
 
 
