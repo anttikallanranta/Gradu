@@ -19,10 +19,10 @@ import analysis
 import stereonet_math
 import matplotlib.lines as mlines
 import openpyxl
-
+import more_itertools as itertools
 
 # Read data from .xlsx to Pandas dataFrame
-fp2 =  r"C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\Rakoilu-detail_karsittu_3.xlsx"
+fp2 =  r"C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\Rakoilu-detail_karsittu_4.xlsx"
 data2 = pd.read_excel(fp2, sheet_name='OnlyArea1', na_values='', )
 dataBeni = pd.read_excel(fp2, sheet_name='BeniOnlyArea1', na_values='', )
 
@@ -64,7 +64,6 @@ def unit_vector(vector):
 
 
 def vectorAngle(array1, array2):
-    #alpha = np.rad2deg(np.arccos(np.dot(array1, array2) / (np.linalg.norm(array1) * np.linalg.norm(array2))))
     alpha = np.rad2deg(np.arccos(np.clip(np.dot(unit_vector(array1), unit_vector(array2)), -1.0, 1.0)))
     return alpha
 
@@ -79,7 +78,7 @@ def _cdf(angles, x):
     return np.sum(angles <= x) / np.sum(~np.isnan(angles))
 
 
-def make_rad_cdf_2(angles, n):
+def make_rad_cdf(angles, n):
     cdf_out = np.zeros(n)
     cdf_range = np.linspace(0, np.pi, n)
     da = np.pi / (n-1)
@@ -88,16 +87,7 @@ def make_rad_cdf_2(angles, n):
     return (cdf_out, cdf_range)
 
 
-def make_deg_cdf_2(angles, n):
-    cdf_out = np.zeros(n)
-    cdf_range = np.linspace(0, 180, n)
-    da = 180 / (n-1)
-    for i in range(n):
-        cdf_out[i] = _cdf(angles, (i+1)*da)
-    return (cdf_out, cdf_range)
-
-
-def make_rad_pdf_2(cdf, cdfr):
+def make_rad_pdf(cdf, cdfr):
     n = len(cdf) - 1
     pdf_out = np.zeros(n)
     pdf_range = np.linspace(0, np.pi, n)
@@ -106,7 +96,16 @@ def make_rad_pdf_2(cdf, cdfr):
     return (pdf_out, pdf_range)
 
 
-def make_deg_pdf_2(cdf, cdfr):
+def make_deg_cdf(angles, n):
+    cdf_out = np.zeros(n)
+    cdf_range = np.linspace(0, 180, n)
+    da = 180 / (n-1)
+    for i in range(n):
+        cdf_out[i] = _cdf(angles, (i+1)*da)
+    return (cdf_out, cdf_range)
+
+
+def make_deg_pdf(cdf, cdfr):
     n = len(cdf) - 1
     pdf_out = np.zeros(n)
     pdf_range = np.linspace(0, 180, n)
@@ -116,13 +115,6 @@ def make_deg_pdf_2(cdf, cdfr):
 
 
 def plot_stereonet(strikes, dips, domain, sigma, *args, **kwargs):
-    # Populations as an array
-    #populations = kwargs.get('pop', np.array([1]))
-    #populations = np.unique(populations)
-    #colors = ['red', 'green', 'blue', 'purple', 'yellow', 'black']
-
-    # Set color
-    #color = kwargs.get('col', 'k')
 
     bin_edges = np.arange(-5, 366, 10)
     number_of_strikes, bin_edges = np.histogram(strikes, bin_edges)
@@ -149,8 +141,6 @@ def plot_stereonet(strikes, dips, domain, sigma, *args, **kwargs):
     ax.set_rgrids(np.arange(1, two_halves.max() + 1, 10), angle=0, weight= 'black')
     ax.set_title('Rose Diagram of the Bearings', y=1.10, fontsize=15)
     fig.suptitle(domain)
-#    fig.tight_layout()
-#    show()
 
 
 def weightByN(dataframe):
@@ -168,7 +158,6 @@ def weightByN(dataframe):
 
 
 def splitByAngle(dframe, cPoles):
-    #testPoles = pd.DataFrame({'strike':[210,10,190,295,115], 'dip':[10,90,90,90,90]})
     testPoles = cPoles
 
     # Calculate the minimum angle between the cluster centers
@@ -190,7 +179,6 @@ def splitByAngle(dframe, cPoles):
 
         for i, r in testPoles.iterrows():
             angle = np.degrees(mpl.angular_distance((lon,lat), (mpl.pole(r['strike'],r['dip'])), bidirectional=False))
-            #if (angle <= np.array([30])).all():
             if (angle <= minangle).all():
                 dframe.loc[idx, 'population'] = int(i+1)
                 break
@@ -347,13 +335,21 @@ def calcAlpha(dataframe):
             alpha = np.degrees(mpl.angular_distance((Slon, Slat), (nlon, nlat), bidirectional = True))
             dataframe.loc[index, 'alpha'] = alpha
 
-    return  dataframe
+    return dataframe
 
 
 def calcPlotC13(dataframe, type):
     # Empty DataFrame for C13
     C13DF = pd.DataFrame(columns=['population', 'Area 1_' + type])
     C13DF = C13DF.set_index('population')
+
+    # Empty DataFrame for the Fisher values
+    clist = ['meanStrike', 'meanDip', 'r_value', 'angle', 'kappa']
+    fisherDF = pd.DataFrame(columns = clist)
+
+    # Empty DataFrames for the CDFs
+    cdfAngleDF = pd.DataFrame()
+    cdfRangeDF = pd.DataFrame()
 
     # Group data by population
     dataframe = dataframe.sort_values('population', ascending=True)
@@ -362,7 +358,7 @@ def calcPlotC13(dataframe, type):
     for idx, group in grouped:
         if idx == 999:
             continue
-
+        print('IDX ', idx)
         # Select the column containing alpha values
         tempFrame = group['alpha']
         # Convert pandas series into numpy array
@@ -372,14 +368,12 @@ def calcPlotC13(dataframe, type):
         # Sort the array into ascending order
         tempName = np.sort(tempName)
 
-        # uncerts = np.zeros(len(tempName)) + 2???
-        # alpha = 0.6???
-        # dx = pdf_range[1] - pdf_range[0]???
-
         # Calculate Cumulative distribution function values and its range for values of alpha
-        cdf_angle, cdf_range = make_rad_cdf_2(tempName, len(tempName) - 1)
+        cdf_angle, cdf_range = make_rad_cdf(tempName, len(tempName) - 1)
         # Calculate Probability Distribution Function values and its range for values of CDF
-        pdf_angle, pdf_range = make_rad_pdf_2(cdf_angle, cdf_range)
+        pdf_angle, pdf_range = make_rad_pdf(cdf_angle, cdf_range)
+
+        print(cdf_angle)
 
         # Calculate the conversion factor C13 by integrating over the PDF values
         C13 = reciprocal(integrate.trapz(pdf_angle * np.abs(np.cos(pdf_range)), pdf_range))
@@ -405,10 +399,17 @@ def calcPlotC13(dataframe, type):
         # Calculate Fisher statistics
         mean_vec, (r_value, angle, kappa) = mpl.fisher_stats(lons, lats, conf=95)
         meanStrike, meanDip = mpl.geographic2pole(mean_vec[0], mean_vec[1])
+        print('Mean density', group['meanDens'].mean())
         print('Mean_vec strike ', meanStrike, ' dip ', meanDip)
         print('r_value', r_value)
         print('angle', angle)
         print('kappa', kappa)
+        C13DF.loc[idx, 'kappa'] = kappa
+
+        # Create a DF for the Fisher values
+        fisherTemp = pd.DataFrame([[meanStrike, meanDip, r_value, angle, kappa]], columns = clist)
+        fisherDF = fisherDF.append(fisherTemp)
+
 
         ######################
         # Plotting
@@ -472,18 +473,37 @@ def calcPlotC13(dataframe, type):
         plt.title('Area 1' + '_R' + str(idx), loc='center')
         plt.savefig(fname, dpi=300)
 
-    return  C13DF
+        #KORJAA
+        cdfAngleDF = pd.concat([cdfAngleDF, pd.Series(cdf_angle.tolist())], ignore_index=True)
+        cdfRangeDF = pd.concat([cdfRangeDF, pd.Series(cdf_range.tolist())], ignore_index=True)
 
 
-def popByDensity2(dframe):
+    fisherDF = fisherDF.reset_index(drop=True)
+
+    return  C13DF, fisherDF, cdfAngleDF, cdfRangeDF
+
+def groupByDensity(dframe):
+    meanSeries = dframe['dens'].groupby(dframe['population']).mean()
+    meanFrame = pd.DataFrame({'meanDens': meanSeries})
+    meanFrame = meanFrame.assign(population=meanFrame.index.tolist())
+    dframe = pd.merge(dframe, meanFrame, how='outer', on='population')
+
+    return dframe
+
+def popByDensity2(dframe, centers):
     meanSeries = dframe['dens'].groupby(dframe['population']).mean()
     meanFrame = pd.DataFrame({'meanDens':meanSeries})
+    centerSeries = pd.Series(centers)
+    centerSeries.index +=1
+    meanFrame = meanFrame.assign(centers=centerSeries)
     meanFrame = meanFrame.assign(population=meanFrame.index.tolist())
-    meanFrame = meanFrame.loc[meanFrame['population'] != 999, ['population', 'meanDens']]
+    meanFrame = meanFrame.loc[meanFrame['population'] != 999, ['population', 'meanDens', 'centers']]
     meanFrame = meanFrame.sort_values('meanDens', ascending = False)
     meanFrame = meanFrame.reset_index(drop = True)
     meanFrame = meanFrame.assign(corrPop=meanFrame.index.tolist())
     meanFrame['corrPop'] += 1
+
+    centers = meanFrame['centers'].tolist()
 
     dframe = pd.merge(dframe,meanFrame, how='outer', on='population')
     dframe['population'] = dframe['corrPop']
@@ -492,11 +512,11 @@ def popByDensity2(dframe):
     dframe = dframe.drop(['corrPop'], axis=1)
     dframe = dframe.sort_values(['Id', 'population'])
 
-    return dframe
+    return dframe, centers
 
 
 def calcP32(dframe, c13frame):
-    c13frame.columns = ['C13']
+    c13frame.columns = ['C13', 'kappa']
     c13frame = c13frame.assign(population=c13frame.index.tolist())
     newframe = pd.merge(dframe, c13frame, on='population', how='outer')
 
@@ -556,7 +576,8 @@ data2[['population']] = data2[['population']].astype(int)
 # Sort data by outcrop index
 data2 = data2.sort_values('Id', ascending = True)
 # Reclassify the populations from densest to sparsest (R1-Rn)
-data2 = popByDensity2(data2)
+# Reclassify the cluster centers to match the new order
+data2, centers1 = popByDensity2(data2, centers1)
 
 
 ############################################
@@ -564,35 +585,38 @@ data2 = popByDensity2(data2)
 ############################################
 
 # Group data by population
-#cmap = ['b', 'g', 'r', 'c', 'm', 'y']
 grouped = data2.groupby('population')
 counter = 0
 
-# Plot all populations on stereonets
-#figAll = plt.figure(figsize=(16,8))
-#ax1 = figAll.add_subplot(121)
+# Plot all clustered populations on stereonets
 for idx, group in grouped:
-    #ax = figAll.add_subplot(121, sharex=ax1, sharey=ax1)
     s = group['strike'].as_matrix()
     d = group['dip'].as_matrix()
-    plot_stereonet(s, d, 'Area 1 population ' + str(idx), 3) # col=cmap[counter]
+    plot_stereonet(s, d, 'Area 1 clustered population ' + str(idx), 3)
     outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
-    fname = outfp + '\\' + 'Area 1_' + 'kmeans population ' + str(idx) + '_stereo_rose' + '.png'
+    fname = outfp + '\\' + 'Area 1_' + 'kmeans_population ' + str(idx) + '_stereo_rose' + '.png'
     plt.savefig(fname, dpi=300)
     counter += 1
-#outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
-#fname = outfp + '\\' + 'Area 1_' + 'kmeans_12345' + '_stereo_rose' + '.png'
-#print(fname)
-#plt.savefig(fname, dpi=300)
+
+# Plot all expert approach populations on stereonets
+grouped = dataBeni.groupby('population')
+counter = 0
+
+for idx, group in grouped:
+    s = group['strike'].as_matrix()
+    d = group['dip'].as_matrix()
+    plot_stereonet(s, d, 'Area 1 expert population ' + str(idx), 3)
+    outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+    fname = outfp + '\\' + 'Area 1_' + 'beni_population ' + str(idx) + '_stereo_rose' + '.png'
+    plt.savefig(fname, dpi=300)
+    counter += 1
 
 # Plot clustered centers on stereonets
-#cstrikes = np.zeros(1)
-#cdips = np.zeros(1)
 counter = 0
 
 for i in centers1:
     cstrike, cdip = stereonet_math.geographic2pole(i[0],i[1])
-    plot_stereonet(cstrike, cdip, 'Area 1', 3)
+    plot_stereonet(cstrike, cdip, 'Area 1 population ' + str(i), 3)
     counter += 1
     print(counter)
     outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
@@ -601,32 +625,61 @@ for i in centers1:
     plt.savefig(fname, dpi=300)
 
 # Plot all centers on a stereonet
-plot_stereonet(cstrikes,cdips,'Area 1',2)
+plot_stereonet(cstrikes,cdips,'Clustered centers',3)
 outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
 fname = outfp + '\\' + 'Area 1_' + 'kmeans_all'  + '_stereo_rose' + '.png'
 plt.savefig(fname, dpi=300)
 
 # Plot all fracture poles on a stereonet
-plot_stereonet(strikes,dips,'Area 1',10)
+plot_stereonet(strikes,dips,'All clustered fracture poles',10)
 outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
 fname = outfp + '\\' + 'Area 1_' + 'stereo_rose' + '.png'
 plt.savefig(fname, dpi=300)
 
+# Plot all Expert approach poles on a stereonet
+beniStrikes = dataBeni['strike'].as_matrix()
+beniDips = dataBeni['dip'].as_matrix()
+plot_stereonet(beniStrikes,beniDips,'All Bence fracture poles',10)
+outfp = r'C:\Users\antti\Documents\Uni\GeoGradu\Aineisto\PythonScripts'
+fname = outfp + '\\' + 'Area 1_' + 'Beni' + '.png'
+plt.savefig(fname, dpi=300)
 
 #########################
 # C13
 # P32
+# Fisher stats
 # Save to Excel
 #########################
-myC13 = calcPlotC13(data2, 'kmeans')
-beniC13 = calcPlotC13(dataBeni, 'Beni')
+myC13, myfisherDF, myCDFAngles, myCDFRanges= calcPlotC13(data2, 'kmeans')
+
+dataBeni = groupByDensity(dataBeni)
+beniC13, bfisherDF, aaa, bbbb= calcPlotC13(dataBeni, 'Beni')
 
 data2 = calcP32(data2, myC13)
 dataBeni = calcP32(dataBeni, beniC13)
 
+data2 = data2.drop_duplicates()
+dataBeni = dataBeni.drop_duplicates()
+
 writer = pd.ExcelWriter(outfp + '\\' +'C13.xlsx')
-myC13.to_excel(writer, 'Sheet1')
-beniC13.to_excel(writer, 'Sheet2')
-data2.to_excel(writer, 'Sheet3')
-dataBeni.to_excel(writer, 'Sheet4')
+myC13.to_excel(writer, 'Kmeans_C13')
+beniC13.to_excel(writer, 'HardSectoring_C13')
+data2.to_excel(writer, 'HardSectoring_origdata')
+dataBeni.to_excel(writer, 'HardSectoring_groupByDensity')
+myfisherDF.to_excel(writer, 'Kmeans_Fisherstats')
+bfisherDF.to_excel(writer, 'HardSectoring_Fisherstats')
+myCDFAngles.to_excel(writer,'Kmeans_CDF_angles')
+myCDFRanges.to_excel(writer,'Kmeans_CDF_range')
+aaa.to_excel(writer,'HardSectoring_CDF_angles')
+bbbb.to_excel(writer,'HardSectoring_CDF_range')
 writer.save()
+
+grouped = data2.groupby('population')
+for idx, group in grouped:
+    fname = outfp + '\\' + 'Cluster' + str(idx) + '.csv'
+    group.to_csv(fname, index=False, encoding='utf-8')
+
+grouped =dataBeni.groupby('population')
+for idx, group in grouped:
+    fname = outfp + '\\' + 'Beni' + str(idx) + '.csv'
+    group.to_csv(fname, index=False, encoding='utf-8')
